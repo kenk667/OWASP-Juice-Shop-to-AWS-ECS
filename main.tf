@@ -3,12 +3,10 @@ terraform {
     bucket = "wrn-demo"
     key    = "terraform/state"
     region = "us-east-1"
-    profile = "tofu"
   }
 }
 provider "aws" {
   region = "us-east-1"
-  shared_credentials_files = ["/home/meow/.aws/credentials"]
   profile = "tofu"
 }
 
