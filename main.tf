@@ -2,12 +2,11 @@ terraform {
   backend "s3" {
     bucket = "wrn-demo"
     key    = "terraform/state"
-    region = "us-east-1"
+    region = var.aws_region
   }
 }
 provider "aws" {
-  region = "us-east-1"
-  profile = "tofu"
+  region = var.aws_region
 }
 
 resource "aws_vpc" "main" {
