@@ -4,13 +4,11 @@ variable "aws_region" {
   default     = "us-east-1"
 }
 
-
-/*variable "aws_region" {
-  description = "AWS region to deploy resources"
+variable "aws_bucket" {
+  description = "AWS S3 bucket for remote state"
   type        = string
-  default     = "us-east-1"
-}*/
-
+  default     = "wrn-demo"
+}
 variable "app_name" {
   description = "Application name"
   type        = string
