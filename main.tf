@@ -1,6 +1,5 @@
-#terraform backend set up and provider has AWS creds omitted because this project assumes a terrafrom.tfvars with aws_profile and aws_shared_credentials_file values declard in .tfvars
-#aws_region seems to fail if used in .tfvars and is declared in a seperate variab;es.tf file for repeatability and ease
-
+#provider has aws creds omitted because this code assumes that a terraform.tfvars will be availabe with aws_profile and aws_shared_credentials_file values filled in
+#variables file has aws region 
 terraform {
   backend "s3" {
     bucket = "wrn-demo"
@@ -8,88 +7,69 @@ terraform {
     region = var.aws_region
   }
 }
+
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "~> 5.0"
+    }
+  }
+}
+
 provider "aws" {
   region = var.aws_region
 }
 
+# VPC and Networking
 resource "aws_vpc" "main" {
-  cidr_block = "10.0.0.0/16"
-  
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_hostnames = true
+  enable_dns_support   = true
+
   tags = {
-    Name = "main-vpc"
+    Name = "juice-shop-vpc" 
   }
 }
 
-resource "aws_subnet" "subnet1" {
-  vpc_id = aws_vpc.main.id
-  cidr_block = "10.0.1.0/24"
-  availability_zone = "us-east-1a"
-  
-  tags = {
-    Name = "subnet1"
-  }
-}
+resource "aws_subnet" "public" {
+  count             = 2
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = "10.0.${count.index + 1}.0/24"
+  availability_zone = data.aws_availability_zones.available.names[count.index]
+  map_public_ip_on_launch = true
 
-resource "aws_subnet" "subnet2" {
-  vpc_id = aws_vpc.main.id 
-  cidr_block = "10.0.2.0/24"
-  availability_zone = "us-east-1b"
-  
   tags = {
-    Name = "subnet2" 
+    Name = "juice-shop-public-${count.index + 1}"
   }
 }
 
 resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main.id
-  
-  tags = {
-    Name = "main-igw"
-  }
 }
 
-resource "aws_route_table" "main" {
+resource "aws_route_table" "public" {
   vpc_id = aws_vpc.main.id
-  
+
   route {
     cidr_block = "0.0.0.0/0"
     gateway_id = aws_internet_gateway.main.id
   }
-  
-  tags = {
-    Name = "main-rt"
-  }
 }
 
-resource "aws_route_table_association" "subnet1" {
-  subnet_id = aws_subnet.subnet1.id
-  route_table_id = aws_route_table.main.id
+resource "aws_route_table_association" "public" {
+  count          = 2
+  subnet_id      = aws_subnet.public[count.index].id
+  route_table_id = aws_route_table.public.id
 }
 
-resource "aws_route_table_association" "subnet2" {
-  subnet_id = aws_subnet.subnet2.id
-  route_table_id = aws_route_table.main.id
-}
-
-// ... existing code ...
-
-data "aws_ami" "amazon_linux_2" {
-  most_recent = true
-  owners      = ["amazon"]
-
-  filter {
-    name   = "name"
-    values = ["amzn2-ami-hvm-*-x86_64-gp2"]
-  }
-}
-
-resource "aws_security_group" "juice_shop" {
-  name        = "juice-shop-sg"
-  description = "Security group for Juice Shop instance"
+# Security Groups
+resource "aws_security_group" "alb" {
+  name        = "juice-shop-alb-sg"
+  description = "Security group for ALB"
   vpc_id      = aws_vpc.main.id
 
   ingress {
-    description = "HTTP"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -97,38 +77,121 @@ resource "aws_security_group" "juice_shop" {
   }
 
   egress {
-    description = "wide open owasp juice shop"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
+}
 
-  tags = {
-    Name = "juice-shop-sg"
+resource "aws_security_group" "ecs" {
+  name        = "juice-shop-ecs-sg"
+  description = "Security group for ECS tasks"
+  vpc_id      = aws_vpc.main.id
+
+  ingress {
+    from_port       = 3000
+    to_port         = 3000
+    protocol        = "tcp"
+    security_groups = [aws_security_group.alb.id]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
   }
 }
 
-resource "aws_instance" "juice_shop" {
-  ami                         = data.aws_ami.amazon_linux_2.id
-  instance_type               = "t2.micro"
-  metadata_options {
-    http_tokens = "required"
-  }
-  subnet_id                   = aws_subnet.subnet1.id
-  vpc_security_group_ids      = [aws_security_group.juice_shop.id]
-  associate_public_ip_address = true
+# Application Load Balancer
+resource "aws_lb" "main" {
+  name               = "juice-shop-alb"
+  internal           = false
+  load_balancer_type = "application"
+  security_groups    = [aws_security_group.alb.id]
+  subnets           = aws_subnet.public[*].id
+}
 
-  user_data = <<-EOF
-              #!/bin/bash
-              yum update -y
-              yum install -y docker
-              service docker start
-              docker pull bkimminich/juice-shop
-              docker run -d -p 80:3000 bkimminich/juice-shop
-              EOF
+resource "aws_lb_target_group" "juice_shop" {
+  name        = "juice-shop-tg"
+  port        = 3000
+  protocol    = "HTTP"
+  vpc_id      = aws_vpc.main.id
+  target_type = "ip"
 
-  tags = {
-    Name = "juice-shop"
+  health_check {
+    path                = "/"
+    healthy_threshold   = 2
+    unhealthy_threshold = 10
+    timeout             = 5
+    interval            = 10
+    matcher             = "200,302"
   }
+}
+
+resource "aws_lb_listener" "main" {
+  load_balancer_arn = aws_lb.main.arn
+  port              = "80"
+  protocol          = "HTTP"
+
+  default_action {
+    type             = "forward"
+    target_group_arn = aws_lb_target_group.juice_shop.arn
+  }
+}
+
+# ECS Resources
+resource "aws_ecs_cluster" "main" {
+  name = "juice-shop-cluster"
+}
+
+resource "aws_ecs_task_definition" "juice_shop" {
+  family                   = "juice-shop"
+  network_mode            = "awsvpc"
+  requires_compatibilities = ["FARGATE"]
+  cpu                     = 256
+  memory                  = 512
+
+  container_definitions = jsonencode([
+    {
+      name  = "juice-shop"
+      image = "bkimminich/juice-shop:latest"
+      portMappings = [
+        {
+          containerPort = 3000
+          hostPort      = 3000
+          protocol      = "tcp"
+        }
+      ]
+    }
+  ])
+}
+
+resource "aws_ecs_service" "juice_shop" {
+  name            = "juice-shop-service"
+  cluster         = aws_ecs_cluster.main.id
+  task_definition = aws_ecs_task_definition.juice_shop.arn
+  desired_count   = 1
+  launch_type     = "FARGATE"
+
+  network_configuration {
+    subnets          = aws_subnet.public[*].id
+    security_groups  = [aws_security_group.ecs.id]
+    assign_public_ip = true
+  }
+
+  load_balancer {
+    target_group_arn = aws_lb_target_group.juice_shop.arn
+    container_name   = "juice-shop"
+    container_port   = 3000
+  }
+}
+
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+output "juice_shop_url" {
+  value = "http://${aws_lb.main.dns_name}"
 }
