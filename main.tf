@@ -63,13 +63,14 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# Security Groups
+# (in)Security Groups - allowing ingress/egress from all public sources is by design for the juiceshop
 resource "aws_security_group" "alb" {
   name        = "juice-shop-alb-sg"
   description = "Security group for ALB"
   vpc_id      = aws_vpc.main.id
 
   ingress {
+    description = "super insecure port 80"
     from_port   = 80
     to_port     = 80
     protocol    = "tcp"
@@ -77,6 +78,7 @@ resource "aws_security_group" "alb" {
   }
 
   egress {
+    description = "allow all the traffic from everywhere"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -90,6 +92,7 @@ resource "aws_security_group" "ecs" {
   vpc_id      = aws_vpc.main.id
 
   ingress {
+    description = "container port to 3000, mapped external to alb port 80"
     from_port       = 3000
     to_port         = 3000
     protocol        = "tcp"
@@ -97,6 +100,7 @@ resource "aws_security_group" "ecs" {
   }
 
   egress {
+    description = "allow all the traffic from everywhere"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
@@ -105,12 +109,14 @@ resource "aws_security_group" "ecs" {
 }
 
 # Application Load Balancer
+#internal is set to false and left exposed to outside traffic as part of juiceshop deployment
 resource "aws_lb" "main" {
   name               = "juice-shop-alb"
-  internal           = false
+  internal           = false            
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets           = aws_subnet.public[*].id
+  drop_invalid_header_fields = true
 }
 
 resource "aws_lb_target_group" "juice_shop" {
@@ -130,6 +136,7 @@ resource "aws_lb_target_group" "juice_shop" {
   }
 }
 
+#port 80 vs https/443 is on purpose, it's part of the juiceshop deployment design
 resource "aws_lb_listener" "main" {
   load_balancer_arn = aws_lb.main.arn
   port              = "80"
@@ -144,6 +151,11 @@ resource "aws_lb_listener" "main" {
 # ECS Resources
 resource "aws_ecs_cluster" "main" {
   name = "juice-shop-cluster"
+  
+    setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
 }
 
 resource "aws_ecs_task_definition" "juice_shop" {
