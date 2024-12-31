@@ -1,3 +1,6 @@
+#terraform backend set up and provider has AWS creds omitted because this project assumes a terrafrom.tfvars with aws_profile and aws_shared_credentials_file values declard in .tfvars
+#aws_region seems to fail if used in .tfvars and is declared in a seperate variab;es.tf file for repeatability and ease
+
 terraform {
   backend "s3" {
     bucket = "wrn-demo"
@@ -20,7 +23,7 @@ resource "aws_vpc" "main" {
 resource "aws_subnet" "subnet1" {
   vpc_id = aws_vpc.main.id
   cidr_block = "10.0.1.0/24"
-  availability_zone = var.aws_region
+  availability_zone = "us-east-1a"
   
   tags = {
     Name = "subnet1"
@@ -30,7 +33,7 @@ resource "aws_subnet" "subnet1" {
 resource "aws_subnet" "subnet2" {
   vpc_id = aws_vpc.main.id 
   cidr_block = "10.0.2.0/24"
-  availability_zone = var.aws_region
+  availability_zone = "us-east-1b"
   
   tags = {
     Name = "subnet2" 
