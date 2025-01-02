@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "aws_bucket" {
   description = "AWS S3 bucket for remote state"
   type        = string
-  default     = "wrn-demo"
+  default     = "juiceshop-state"
 }
 variable "app_name" {
   description = "Application name"

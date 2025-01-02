@@ -24,7 +24,7 @@ This will deploy an OWASP Juiceshop docker image from bkimminich/juice-shop to A
 
 There is a ```not_tfvars``` file that contains two key/value pairs, ```aws_profile``` and ```aws_shared_credentials_file```. Enter the AWS CLI profile name and the path to the credentials file. In linux and Mac, the default path is ```/home/USER_NAME/.aws/credentials```. With the values updated, rename the file to ```terrafrom.tfvars```. This file will be automatically read by main.tf and consume the variables for the provider and remote state file.
 
-The main.tf is setup to store a remote state file in AWS S3. The name of the bucket is declared in variables.tf file. The variable defaults to a bucket called ```wrn-demo```. Change the bucket name to your bucket name, and ensure that the bucket has appropriate permissions for the remote state file. The permissions can be found in the file ```s3_permissions.json```. The json is structured as an AWS bucket policy and can be copy/pasted to apply only the minimum set of permissions necessary. 
+The main.tf is setup to store a remote state file in AWS S3. The name of the bucket is declared in variables.tf file. The variable defaults to a bucket called ```juiceshop-state```. Change the bucket name to your bucket name (or use this bucket name), and ensure that the bucket has appropriate permissions for the remote state file. The permissions can be found in the file ```s3_permissions.json```. The json is structured as an AWS bucket policy and can be copy/pasted to apply only the minimum set of permissions necessary. 
 
 ## Ready to Deploy
 
