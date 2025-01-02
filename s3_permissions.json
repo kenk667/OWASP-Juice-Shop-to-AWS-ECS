@@ -8,7 +8,7 @@
                 "s3:GetBucketVersioning",
                 "s3:GetBucketLocation"
             ],
-            "Resource": "arn:aws:s3:::wrn-demo"
+            "Resource": "arn:aws:s3:::juiceshop-state"
         },
         {
             "Effect": "Allow", 
@@ -17,7 +17,7 @@
                 "s3:PutObject",
                 "s3:DeleteObject"
             ],
-            "Resource": "arn:aws:s3:::wrn-demo/*"
+            "Resource": "arn:aws:s3:::juiceshop-state/*"
         }
     ]
 }

@@ -1,7 +1,4 @@
-#provider has aws creds omitted because this code assumes that a terraform.tfvars will be availabe with aws_profile and aws_shared_credentials_file values filled in
-#variables file has aws region 
-#run command 'tofu show' after build to see the final output from line 208 for the external app URL to the juiceshop.
-#be sure to either create an s3 bucket with the same name from the variables file or change the bucket name there. The s3_permisisons.json will need updating if you intend to use it for a new bukcet, be sure to change the bucket name
+#Remote state file
 terraform {
   backend "s3" {
     bucket = var.aws_bucket
@@ -9,7 +6,7 @@ terraform {
     region = var.aws_region
   }
 }
-
+#AWS provider has key/secret omitted. Expected to have AWS CLI profile name and credentials path declared in tfvars.
 terraform {
   required_providers {
     aws = {
