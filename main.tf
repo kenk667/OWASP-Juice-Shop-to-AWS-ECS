@@ -1,4 +1,7 @@
-#Remote state file
+#provider has aws creds omitted because this code assumes that a terraform.tfvars will be availabe with aws_profile and aws_shared_credentials_file values filled in
+#variables file has aws region 
+#run command 'tofu show' after build to see the final output from line 208 for the external app URL to the juiceshop.
+#be sure to either create an s3 bucket with the same name from the variables file or change the bucket name there. The s3_permisisons.json will need updating if you intend to use it for a new bukcet, be sure to change the bucket name
 terraform {
   backend "s3" {
     bucket = var.aws_bucket
@@ -6,7 +9,7 @@ terraform {
     region = var.aws_region
   }
 }
-#AWS provider has key/secret omitted. Expected to have AWS CLI profile name and credentials path declared in tfvars.
+
 terraform {
   required_providers {
     aws = {
@@ -18,6 +21,67 @@ terraform {
 
 provider "aws" {
   region = var.aws_region
+}
+
+# loosey-goosey S3 Bucket
+resource "aws_s3_bucket" "donald_duck" {
+  bucket = "donald-duck"
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "donald_duck" {
+  bucket = aws_s3_bucket.donald_duck.id
+
+  rule {
+    id     = "delete_old_logs"
+    status = "Enabled"
+
+    expiration {
+      days = 3
+    }
+  }
+}
+
+resource "aws_s3_bucket_public_access_block" "donald_duck" {
+  bucket = aws_s3_bucket.donald_duck.id
+
+  block_public_acls       = false
+  block_public_policy     = false
+  ignore_public_acls      = false
+  restrict_public_buckets = false
+}
+
+resource "aws_s3_bucket_ownership_controls" "donald_duck" {
+  bucket = aws_s3_bucket.donald_duck.id
+  rule {
+    object_ownership = "BucketOwnerPreferred"
+  }
+}
+
+resource "aws_s3_bucket_acl" "donald_duck" {
+  depends_on = [
+    aws_s3_bucket_public_access_block.donald_duck,
+    aws_s3_bucket_ownership_controls.donald_duck,
+  ]
+
+  bucket = aws_s3_bucket.donald_duck.id
+  acl    = "public-read"
+}
+
+resource "aws_s3_bucket_policy" "donald_duck" {
+  bucket = aws_s3_bucket.donald_duck.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "PublicReadGetObject"
+        Effect    = "Allow"
+        Principal = "*"
+        Action    = "s3:GetObject"
+        Resource  = "${aws_s3_bucket.donald_duck.arn}/*"
+      },
+    ]
+  })
 }
 
 # VPC and Networking
@@ -157,14 +221,80 @@ resource "aws_ecs_cluster" "main" {
   }
 }
 
+#IAM role for ECS task and log shipping
+
+resource "aws_iam_role" "ecs_task_role" {
+  name = "ecs-task-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action = "sts:AssumeRole"
+        Effect = "Allow"
+        Principal = {
+          Service = "ecs-tasks.amazonaws.com"
+        }
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy" "ecs_s3_access" {
+  name = "ecs-s3-access"
+  role = aws_iam_role.ecs_task_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "s3:PutObject",
+          "s3:GetObject", 
+          "s3:ListBucket"
+        ]
+        Resource = [
+          "arn:aws:s3:::donald-duck",
+          "arn:aws:s3:::donald-duck/*"
+        ]
+      }
+    ]
+  })
+}
+
 resource "aws_ecs_task_definition" "juice_shop" {
   family                   = "juice-shop"
   network_mode            = "awsvpc"
   requires_compatibilities = ["FARGATE"]
   cpu                     = 256
   memory                  = 512
-
+  task_role_arn           = aws_iam_role.ecs_task_role.arn #for ECS IAM role line 211
+  execution_role_arn      = aws_iam_role.ecs_task_role.arn #for ECS IAM role line 211
+  
+  #log router with fluentbit to ship logs to s3
   container_definitions = jsonencode([
+    {
+      name  = "log_router"
+      image = "public.ecr.aws/aws-observability/aws-for-fluent-bit:latest"
+      firelensConfiguration = {
+        type = "fluentbit"
+        options = {
+          "enable-ecs-log-metadata" = "true"
+        }
+      }
+      logConfiguration = {
+        logDriver = "awsfirelens"
+        options = {
+          Name = "s3"
+          region = var.aws_region
+          bucket = "donald-duck"
+          total_file_size = "1M"
+          upload_timeout = "1m"
+        }
+      }
+      memoryReservation = 50
+    },
     {
       name  = "juice-shop"
       image = "bkimminich/juice-shop:latest"
@@ -175,10 +305,26 @@ resource "aws_ecs_task_definition" "juice_shop" {
           protocol      = "tcp"
         }
       ]
+      #logging defination for juiceshop 
+      logConfiguration = {
+        logDriver = "awsfirelens"
+        options = {
+          Name = "s3"
+          region = var.aws_region
+          bucket = "donald-duck"
+          total_file_size = "1M"
+          upload_timeout = "1m"
+        }
+      }
+      dependsOn = [
+        {
+          containerName = "log_router"
+          condition = "START"
+        }
+      ]
     }
   ])
 }
-
 resource "aws_ecs_service" "juice_shop" {
   name            = "juice-shop-service"
   cluster         = aws_ecs_cluster.main.id
